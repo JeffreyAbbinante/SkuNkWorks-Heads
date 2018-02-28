@@ -1,0 +1,10 @@
+// Check whether file signatures in /boot have changed
+// If so, prompt the user to update their signatures
+//
+DPkg::Pre-Invoke {
+  "if [ -x /usr/bin/heads_integrity_check ]; then /usr/bin/heads_integrity_check pre; fi"; 
+};
+DPkg::Post-Invoke {
+  "if [ -x /usr/bin/heads_integrity_check ]; then /usr/bin/heads_integrity_check post; fi"; 
+};
+

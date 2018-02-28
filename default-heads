@@ -1,0 +1,2 @@
+ENABLED=true
+LOCAL_USER=$(who | grep '(:0)' | cut -f1 -d ' ')

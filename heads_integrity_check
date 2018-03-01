@@ -2,7 +2,7 @@
 
 MODE=$1
 
-. /etc/default/heads
+. /etc/default/purism-heads
 
 if [ "$ENABLED" != "true" ]; then exit; fi
 

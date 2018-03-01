@@ -1,10 +1,13 @@
 #!/bin/bash
 
 MODE=$1
+unset CONSOLE
 
 . /etc/default/purism-heads
 
 if [ "$ENABLED" != "true" ]; then exit; fi
+
+if tty | grep -q tty; then CONSOLE=1; fi
 
 update_boot_signatures() {
   cd /boot
@@ -14,38 +17,69 @@ update_boot_signatures() {
   sha256sum `find /boot/kexec*.txt` | sudo -u ${LOCAL_USER} gpg --detach-sig | sudo cat > /boot/kexec.sig
 }
 
+show_dialog() {
+  TYPE=$1
+  if [ "$TYPE" == "error" ]; then
+    if [ $CONSOLE ]; then
+      whiptail --msgbox --title "$TITLE" "$TEXT" 30 75 
+    else
+      zenity --error --title "$TITLE" --width 600 --text "$TEXT"
+    fi
+  elif [ "$TYPE" == "info" ]; then
+    if [ $CONSOLE ]; then
+      whiptail --msgbox --title "$TITLE" "$TEXT" 30 75 
+    else
+      zenity --info --title "$TITLE" --width 600 --text "$TEXT" 
+    fi
+  else
+    if [ $CONSOLE ]; then
+      whiptail --yesno --title "$TITLE" "$TEXT" 30 75 --yes-button "$OK" --no-button "$CANCEL"
+    else
+      zenity --question --title "$TITLE" --width 600 --text "$TEXT" --ok-label "$OK" --cancel-label "$CANCEL"
+    fi
+  fi
+  return $?
+}
+
 CHANGED_FILES=$(cd /boot && /usr/bin/sha256sum -c kexec_hashes.txt | /bin/grep -v 'OK$' | cut -f1 -d ':')
 
 # No changed files? No need to update signatures
 if [ "$CHANGED_FILES" == "" -a "$MODE" != "force" ]; then exit; fi
 
 if [ "$MODE" == "pre" ]; then
-  if (zenity --question --title "ALERT: Pre-Update Changes in /boot detected!" --width 600 \
-    --text "The following files in /boot were changed BEFORE the software update:\n\n$CHANGED_FILES\n\nThis could indicate a compromise! Click Abort to abort the software update and investigate, or Ignore to ignore the alert and continue." \
-    --ok-label "Ignore" --cancel-label "Abort"); then
-    exit 0
-  else
-    exit 1
-  fi
+  TITLE="ALERT: Pre-Update Changes in /boot detected!"
+  TEXT="The following files in /boot were changed BEFORE the software update:\n\n$CHANGED_FILES\n\nThis could indicate a compromise! Click Abort to abort the software update and investigate, or Ignore to ignore the alert and continue."
+  OK="Ignore"
+  CANCEL="Abort"
+
+  show_dialog
+  exit $?
 fi
 
 LAST_PACKAGE_CHANGE=$(egrep "^(Install|Remove):" /var/log/apt/history.log | tail -n1)
-if (zenity --question --title "ALERT: Post-Update Changes in /boot detected!" --width 600 \
-  --text "The following files in /boot have been changed:\n${CHANGED_FILES}\n\nThis is most likely caused by this software that just changed on your system:\n${LAST_PACKAGE_CHANGE}\n\nIf you suspect these packages changed the files, Select 'Update /boot signatures'.\n\nOtherwise this could indicate a compromise and you should click Cancel and investigate what has changed in /boot.\n\nNote that without updating your signatures the NEXT BOOT WILL FAIL!\n\nWould you like to update your signatures?" \
-  --ok-label "Update /boot signatures" --cancel-label "Cancel"); then
 
+TITLE="ALERT: Post-Update Changes in /boot detected!"
+TEXT="The following files in /boot have been changed:\n${CHANGED_FILES}\n\nThis is most likely caused by this software that just changed on your system:\n${LAST_PACKAGE_CHANGE}\n\nIf you suspect these packages changed the files, Select 'Update /boot signatures'.\n\nOtherwise this could indicate a compromise and you should click Cancel and investigate what has changed in /boot.\n\nNote that without updating your signatures the NEXT BOOT WILL FAIL!\n\nWould you like to update your signatures?"
+OK="Update /boot signatures"
+CANCEL="Cancel"
+
+show_dialog
+if [ $? -eq 0 ]; then
   update_boot_signatures
 
   CHANGED_FILES=$(cd /boot && /usr/bin/sha256sum -c kexec_hashes.txt | /bin/grep -v 'OK$' | cut -f1 -d ':')
 
   if [ "$CHANGED_FILES" != "" ]; then
-    zenity --error --title "File signatures not updated!" --width 600 \
-      --text "The Following files do not have updated signatures:\n${CHANGED_FILES}\n\nResolve this issue before you reboot or Heads will refuse to boot!"
+    TITLE="File signatures not updated!"
+    TEXT="The Following files do not have updated signatures:\n${CHANGED_FILES}\n\nResolve this issue before you reboot or Heads will refuse to boot!"
+    show_dialog error
   elif ! sha256sum `find /boot/kexec*.txt` | sudo -u ${LOCAL_USER} gpg --verify /boot/kexec.sig - ; then
-    zenity --error --title "GPG Signature failed!" --width 600 \
-      --text "The GPG signature does not match! Signature update failed!\n\nResolve this issue before you reboot or Heads will refuse to boot!"
+    TITLE="GPG Signature failed!"
+    TEXT="The GPG signature does not match! Signature update failed!\n\nResolve this issue before you reboot or Heads will refuse to boot!"
+    show_dialog error
   else
-    zenity --info --title "Signature update complete" --width 600 \
-      --text "The signature update completed successfully. It's recommend that you reboot to verify the signatures from within Head itself."
+    TITLE="Signature update complete"
+    TEXT="The signature update completed successfully. It's recommend that you reboot to verify the signatures from within Head itself."
+    show_dialog info
   fi
 fi

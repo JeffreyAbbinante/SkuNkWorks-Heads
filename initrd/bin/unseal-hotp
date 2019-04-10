@@ -30,7 +30,7 @@ if [ "$CONFIG_TPM" = "y" ]; then
     -of "$HOTP_SECRET" \
   || die "Unable to unseal HOTP secret"
 
-  rm -f "$HOTP_SEALED"
+  shred -n 10 -z -u "$HOTP_SEALED" 2> /dev/null
 else
 # without a TPM, use the first 20 characters of the ROM SHA256sum 
   echo "TPM not configured, measuring ROM directly" 1>&2
@@ -63,11 +63,11 @@ fi
 #counter_value=$(printf "%d" 0x${counter_value})
 
 if ! hotp $counter_value < "$HOTP_SECRET"; then
-	rm -f "$HOTP_SECRET"
+	shred -n 10 -z -u "$HOTP_SECRET" 2> /dev/null
 	die 'Unable to compute HOTP hash?'
 fi
 
-rm -f "$HOTP_SECRET"
+shred -n 10 -z -u "$HOTP_SECRET" 2> /dev/null
 
 #increment_tpm_counter $counter > /dev/null \
 #|| die "Unable to increment tpm counter"

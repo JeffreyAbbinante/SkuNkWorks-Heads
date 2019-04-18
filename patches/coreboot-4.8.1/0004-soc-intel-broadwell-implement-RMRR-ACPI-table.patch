@@ -1,0 +1,86 @@
+From 42d1660e4e85c472f55a4d999239634c19e0996b Mon Sep 17 00:00:00 2001
+From: Matt DeVillier <matt.devillier@gmail.com>
+Date: Wed, 4 Jul 2018 16:32:21 -0500
+Subject: [PATCH] soc/intel/broadwell: implement RMRR ACPI table
+
+Modeled after Skylake implementation; uses duplicated
+intel common SA functions to get RMRR addresses
+
+Test: build/boot purism/librem13v1, observe IOMMU fully functional
+with intel_iommu=on kernel parameter
+
+Change-Id: I1a10a4f91b787b72f33150031b783d426148c25d
+Signed-off-by: Matt DeVillier <matt.devillier@gmail.com>
+Reviewed-on: https://review.coreboot.org/c/30234
+Tested-by: build bot (Jenkins) <no-reply@coreboot.org>
+Reviewed-by: Nico Huber <nico.h@gmx.de>
+---
+ src/soc/intel/broadwell/acpi.c                    | 10 +++++++++-
+ src/soc/intel/broadwell/include/soc/systemagent.h |  3 +++
+ src/soc/intel/broadwell/systemagent.c             | 12 ++++++++++++
+ 3 files changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/src/soc/intel/broadwell/acpi.c b/src/soc/intel/broadwell/acpi.c
+index 9c6bd9b125..42d31c8141 100644
+--- a/src/soc/intel/broadwell/acpi.c
++++ b/src/soc/intel/broadwell/acpi.c
+@@ -590,12 +590,20 @@ static unsigned long acpi_fill_dmar(unsigned long current)
+ 	/* iGFX has to be enabled; GFXVTBAR set, enabled, in 32-bit space */
+ 	if (igfx_dev && igfx_dev->enabled && gfxvtbar
+ 			&& gfxvten && !MCHBAR32(GFXVTBAR + 4)) {
+-		const unsigned long tmp = current;
++		unsigned long tmp = current;
+ 
+ 		current += acpi_create_dmar_drhd(current, 0, 0, gfxvtbar);
+ 		current += acpi_create_dmar_ds_pci(current, 0, 2, 0);
+ 
+ 		acpi_dmar_drhd_fixup(tmp, current);
++
++		/* Add RMRR entry */
++		tmp = current;
++
++		current += acpi_create_dmar_rmrr(current, 0,
++				sa_get_gsm_base(), sa_get_tolud_base() - 1);
++		current += acpi_create_dmar_ds_pci(current, 0, 2, 0);
++		acpi_dmar_rmrr_fixup(tmp, current);
+ 	}
+ 
+ 	/* VTVC0BAR has to be set, enabled, and in 32-bit space */
+diff --git a/src/soc/intel/broadwell/include/soc/systemagent.h b/src/soc/intel/broadwell/include/soc/systemagent.h
+index 92e79cc99a..f414581c53 100644
+--- a/src/soc/intel/broadwell/include/soc/systemagent.h
++++ b/src/soc/intel/broadwell/include/soc/systemagent.h
+@@ -137,4 +137,7 @@
+ /* System Agent identification */
+ u8 systemagent_revision(void);
+ 
++uintptr_t sa_get_tolud_base(void);
++uintptr_t sa_get_gsm_base(void);
++
+ #endif
+diff --git a/src/soc/intel/broadwell/systemagent.c b/src/soc/intel/broadwell/systemagent.c
+index 80139795d6..e0d8b765a4 100644
+--- a/src/soc/intel/broadwell/systemagent.c
++++ b/src/soc/intel/broadwell/systemagent.c
+@@ -36,6 +36,18 @@ u8 systemagent_revision(void)
+ 	return pci_read_config8(SA_DEV_ROOT, PCI_REVISION_ID);
+ }
+ 
++uintptr_t sa_get_tolud_base(void)
++{
++	/* Bit 0 is lock bit, not part of address */
++	return pci_read_config32(SA_DEV_ROOT, TOLUD) & ~1;
++}
++
++uintptr_t sa_get_gsm_base(void)
++{
++	/* Bit 0 is lock bit, not part of address */
++	return pci_read_config32(SA_DEV_ROOT, BGSM) & ~1;
++}
++
+ static int get_pcie_bar(device_t dev, unsigned int index, u32 *base, u32 *len)
+ {
+ 	u32 pciexbar_reg;
+-- 
+2.20.1
+
